@@ -63,11 +63,11 @@ if __name__ == '__main__':
         description='SuperGlue demo',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
-        '--input', type=str, default=r'G:\point_match\calibrate\45',
+        '--input', type=str, default=r'C:\Users\10922\Desktop\test_point',
         help='ID of a USB webcam, URL of an IP camera, '
              'or path to an image directory or movie file')
     parser.add_argument(
-        '--output_dir', type=str, default=r'G:\point_match\transformer_base\SuperGluePretrainedNetwork',
+        '--output_dir', type=str, default=r'G:\DLproject\SuperGluePretrainedNetwork',
         help='Directory where to write output frames (If None, no output)')
 
     parser.add_argument(
@@ -110,7 +110,7 @@ if __name__ == '__main__':
         '--show_keypoints', action='store_true',
         help='Show the detected keypoints')
     parser.add_argument(
-        '--no_display', action='store_true',
+        '--no_display', action='store_true', default=True,
         help='Do not display images to screen. Useful if running remotely')
     parser.add_argument(
         '--force_cpu', action='store_true',
@@ -320,13 +320,14 @@ if __name__ == '__main__':
             path=None, show_keypoints=opt.show_keypoints, small_text=small_text,margin=0)
         cv2.imwrite(f"{save_dir}/resized_match_points.jpg", out)
 
-
+        last_frame_ori_copy = last_frame_ori.copy()
+        ori_copy = ori.copy()
         keypoints_1o = restore_keypoints(mkpts0, matches, (oh, ow), (rh, rw), method=1)
         keypoints_2o = restore_keypoints(mkpts1, matches, (oh, ow), (rh, rw), method=2)
-        reproject3d(mkpts0, mkpts1, last_frame_ori, ori, matches, K, name='reproject3d_o', save_path=save_dir)
+        reproject3d(keypoints_1o, keypoints_2o, last_frame_ori, ori, matches, K, name='reproject3d_o', save_path=save_dir)
 
         out = make_matching_plot_fast(
-            last_frame_ori, ori, kpts0, kpts1, keypoints_1o, keypoints_2o, color, text,
+            last_frame_ori_copy, ori_copy, kpts0, kpts1, keypoints_1o, keypoints_2o, color, text,
             path=None, show_keypoints=opt.show_keypoints, small_text=small_text,margin=0)
         cv2.imwrite(f"{save_dir}/original_match_points.jpg", out)
 

@@ -303,14 +303,24 @@ if __name__ == '__main__':
         K = np.array([[1.64235539e+03, 0.00000000e+00, 9.28868433e+02],
                       [0.00000000e+00, 1.64232048e+03, 5.14815213e+02],
                       [0.00000000e+00, 0.00000000e+00, 1.00000000e+00]])
-        reproject3d(mkpts0, mkpts1, last_frame, frame, matches, K, name='reproject3d_re', save_path=save_dir)
+        oh, ow, _ = last_frame_ori.shape
+        rh, rw, _ = last_frame_color.shape
+        scale_x = rw / ow
+        scale_y = rh / oh
+
+        k00 = K[0, 0] * scale_x
+        k11 = K[1, 1] * scale_y
+        k02 = K[0, 2] * scale_x
+        k12 = K[1, 2] * scale_y
+        K_resize = np.array([[k00, 0.0, k02], [0.0, k11, k12], [0.0, 0.0, 1.0]])
+
+        reproject3d(mkpts0, mkpts1, last_frame, frame, matches, K_resize, name='reproject3d_re', save_path=save_dir)
         out = make_matching_plot_fast(
             last_frame_color, cim, kpts0, kpts1, mkpts0, mkpts1, color, text,
             path=None, show_keypoints=opt.show_keypoints, small_text=small_text,margin=0)
         cv2.imwrite(f"{save_dir}/resized_match_points.jpg", out)
 
-        oh, ow, _ = last_frame_ori.shape
-        rh, rw, _ = last_frame_color.shape
+
         keypoints_1o = restore_keypoints(mkpts0, matches, (oh, ow), (rh, rw), method=1)
         keypoints_2o = restore_keypoints(mkpts1, matches, (oh, ow), (rh, rw), method=2)
         reproject3d(mkpts0, mkpts1, last_frame_ori, ori, matches, K, name='reproject3d_o', save_path=save_dir)

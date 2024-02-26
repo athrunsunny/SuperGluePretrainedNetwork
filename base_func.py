@@ -1,8 +1,41 @@
 import copy
+import math
 import os
 
 import cv2
 import numpy as np
+
+
+def calculate_euc_dist(pt1, pt2):
+    x_pow = (pt1[0] - pt2[0]) ** 2
+    y_pow = (pt1[1] - pt2[1]) ** 2
+    dist = math.sqrt(x_pow + y_pow)
+    return dist
+
+
+def cv_puttext(image, text, locate=(50, 50)):
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.5
+    color = (0, 255, 0)  # 文本颜色，以BGR格式表示
+    thickness = 2  # 文本线条粗细
+
+    # 在图像上绘制文本
+    cv2.putText(image, text, locate, font, font_scale, color, thickness)
+    return image
+
+
+def inner_matrix_resize(cameraMatrix, ori_image, resize_image):
+    oh, ow, _ = ori_image.shape
+    rh, rw, _ = resize_image.shape
+    scale_x = rw / ow
+    scale_y = rh / oh
+
+    k00 = cameraMatrix[0, 0] * scale_x
+    k11 = cameraMatrix[1, 1] * scale_y
+    k02 = cameraMatrix[0, 2] * scale_x
+    k12 = cameraMatrix[1, 2] * scale_y
+    cameraMatrix_resize = np.array([[k00, 0.0, k02], [0.0, k11, k12], [0.0, 0.0, 1.0]])
+    return cameraMatrix_resize
 
 
 def find_feature_matches(img_1, img_2):
@@ -99,7 +132,6 @@ def restore_keypoints(keypoint, matches, imageshapeo, imageshaper, method=1):
     scale_y = oh / rh
     keypoint_copy = copy.copy(keypoint)
     for i, kp in enumerate(keypoint):
-
         x_scaled = kp[0] * scale_x
         y_scaled = kp[1] * scale_y
         # x_restored = x_scaled + (ow - rw) / 2
@@ -109,11 +141,11 @@ def restore_keypoints(keypoint, matches, imageshapeo, imageshaper, method=1):
     return keypoint_copy
 
 
-def reproject3d(keypoints_1, keypoints_2, img_1_copy, img_2_copy, matches, K, name='reproject3d',save_path=''):
+def reproject3d(keypoints_1, keypoints_2, img_1_copy, img_2_copy, matches, K, name='reproject3d', save_path=''):
     if save_path == '':
         pass
     else:
-        os.makedirs(save_path,exist_ok=True)
+        os.makedirs(save_path, exist_ok=True)
 
     # 估计运动
     R, t = pose_estimation_2d2d(keypoints_1, keypoints_2, matches, K)
@@ -126,19 +158,27 @@ def reproject3d(keypoints_1, keypoints_2, img_1_copy, img_2_copy, matches, K, na
     print('旋转角(角度制):')
     print(rotation_vector_deg)
 
+    text = str(rotation_vector_deg.reshape(-1))
+    # print(text)
+    cv_puttext(img_1_copy, text)
+    cv_puttext(img_2_copy, text)
     # 三角化
     points = triangulation(keypoints_1, keypoints_2, matches, R, t, K)
     # assert len(matches) == len(points)
+    pt1_uv = []
+    pt2_uv = []
+    pt1_uv_match = []
+    pt2_uv_match = []
 
     for i in range(len(points)):
         pt1_3d_uv = (
-            int((points[i][0] / points[i][2]) * K[0, 0] + K[0, 2]),
-            int((points[i][1] / points[i][2]) * K[1, 1] + K[1, 2])
+            (points[i][0] / points[i][2]) * K[0, 0] + K[0, 2],
+            (points[i][1] / points[i][2]) * K[1, 1] + K[1, 2]
         )
-
-        cv2.circle(img_1_copy, tuple(pt1_3d_uv), 10, (0, 255, 0), -1)
+        pt1_3d_uv_img1 = tuple(map(int, np.array(pt1_3d_uv).tolist()))
+        cv2.circle(img_1_copy, tuple(pt1_3d_uv_img1), 10, (0, 255, 0), -1)
         cv2.circle(img_1_copy, tuple(map(int, keypoints_1[i])), 7, (0, 0, 255), -1)
-        cv2.line(img_1_copy, pt1_3d_uv, tuple(map(int, keypoints_1[i])), (255, 0, 0), 2)
+        cv2.line(img_1_copy, pt1_3d_uv_img1, tuple(map(int, keypoints_1[i])), (255, 0, 0), 2)
 
         pt1_cam = pixel2cam(keypoints_1[i], K)
         pt1_cam_3d = np.array([
@@ -169,8 +209,47 @@ def reproject3d(keypoints_1, keypoints_2, img_1_copy, img_2_copy, matches, K, na
         pt2_cam = tuple(map(int, keypoints_2[i]))
         cv2.line(img_2_copy, pt1_trans, pt2_cam, (255, 0, 0), 2)
 
+        pt1_uv.append(pt1_3d_uv)
+        pt2_uv.append(pt1_3d_uv_img2)
+        pt1_uv_match.append(keypoints_1[i])
+        pt2_uv_match.append(keypoints_2[i])
+
     cv2.imwrite(f"{save_path}/{name}_1.jpg", img_1_copy)
     cv2.imwrite(f"{save_path}/{name}_2.jpg", img_2_copy)
+
+    return pt1_uv, pt2_uv, pt1_uv_match, pt2_uv_match
+
+
+def get_match(image1, image2, cameraMatrix, save_path, keypoints1=None,
+              keypoints2=None, matches=None, match_name='match_points', name='reproject3d', refine=False):
+    print("find", len(keypoints1), "matched points")
+
+    image1_copy = image1.copy()
+    image2_copy = image2.copy()
+
+    # 重投影
+    pt1_uvs, pt2_uvs, pt1_uv_matchs, pt2_uv_matchs = reproject3d(keypoints1, keypoints2, image1, image2,
+                                                                 matches, cameraMatrix, name=name, save_path=save_path)
+    if refine:
+        assert len(pt2_uvs) == len(pt1_uvs) and len(pt1_uv_matchs) == len(pt2_uv_matchs)
+        dist_thresh = 3
+        kp1_match = []
+        kp2_match = []
+        for pt1_uv, pt2_uv, pt1_uv_match, pt2_uv_match in zip(pt1_uvs, pt2_uvs, pt1_uv_matchs, pt2_uv_matchs):
+            pt_uv_euc_dist1 = calculate_euc_dist(pt1_uv, pt1_uv_match)
+            pt_uv_euc_dist2 = calculate_euc_dist(pt2_uv, pt2_uv_match)
+            if pt_uv_euc_dist1 < dist_thresh and pt_uv_euc_dist2 < dist_thresh:
+                kp1_match.append(pt1_uv_match)
+                kp2_match.append(pt2_uv_match)
+
+        kp1_match = np.array(kp1_match)
+        kp2_match = np.array(kp2_match)
+
+        print('-' * 80)
+        print('========[refine keypoint]:')
+        reproject3d(kp1_match, kp2_match, image1_copy, image2_copy,
+                    matches, cameraMatrix, name=name + 'refine', save_path=save_path)
+    return keypoints1, keypoints2, matches
 
 # # 读取图像
 # # im_path1 = r'G:\point_match\calibrate\test\WIN_20240220_16_51_21_Pro.jpg'

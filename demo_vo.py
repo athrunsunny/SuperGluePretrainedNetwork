@@ -316,7 +316,7 @@ if __name__ == '__main__':
 
         last_frame_color_copy = last_frame_color.copy()
         cim_copy = cim.copy()
-        reproject3d(mkpts0, mkpts1, last_frame_color, cim, matches, K_resize, name='reproject3d_re', save_path=save_dir)
+        reproject3d(mkpts0, mkpts1, last_frame_color_copy, cim_copy, matches, K_resize, name='reproject3d_re', save_path=save_dir)
         out = make_matching_plot_fast(
             last_frame_color, cim, kpts0, kpts1, mkpts0, mkpts1, color, text,
             path=None, show_keypoints=opt.show_keypoints, small_text=small_text,margin=0)

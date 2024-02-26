@@ -63,11 +63,11 @@ if __name__ == '__main__':
         description='SuperGlue demo',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
-        '--input', type=str, default=r'C:\Users\10922\Desktop\test_point',
+        '--input', type=str, default=r'G:\point_match\calibrate\45',
         help='ID of a USB webcam, URL of an IP camera, '
              'or path to an image directory or movie file')
     parser.add_argument(
-        '--output_dir', type=str, default=r'G:\DLproject\SuperGluePretrainedNetwork',
+        '--output_dir', type=str, default=r'G:\point_match\transformer_base\SuperGluePretrainedNetwork',
         help='Directory where to write output frames (If None, no output)')
 
     parser.add_argument(
@@ -314,7 +314,9 @@ if __name__ == '__main__':
         k12 = K[1, 2] * scale_y
         K_resize = np.array([[k00, 0.0, k02], [0.0, k11, k12], [0.0, 0.0, 1.0]])
 
-        reproject3d(mkpts0, mkpts1, last_frame, frame, matches, K_resize, name='reproject3d_re', save_path=save_dir)
+        last_frame_color_copy = last_frame_color.copy()
+        cim_copy = cim.copy()
+        reproject3d(mkpts0, mkpts1, last_frame_color, cim, matches, K_resize, name='reproject3d_re', save_path=save_dir)
         out = make_matching_plot_fast(
             last_frame_color, cim, kpts0, kpts1, mkpts0, mkpts1, color, text,
             path=None, show_keypoints=opt.show_keypoints, small_text=small_text,margin=0)

@@ -74,13 +74,15 @@ def pose_estimation_2d2d(keypoints_1, keypoints_2, matches, camera_matrix):
     points1 = keypoints_1
     points2 = keypoints_2
     fundamental_matrix, mask = cv2.findFundamentalMat(points1, points2, cv2.FM_RANSAC)
-
-    points1 = points1[mask.ravel() == 1]
-    points2 = points2[mask.ravel() == 1]
+    if mask is not None:
+        points1 = points1[mask.ravel() == 1]
+        points2 = points2[mask.ravel() == 1]
 
     essential_matrix, _ = cv2.findEssentialMat(points1, points2, camera_matrix)
 
     _, R, t, _ = cv2.recoverPose(essential_matrix, points1, points2, camera_matrix)
+
+    _, rotation_matrix, translation_vector, _ = cv2.recoverPose(fundamental_matrix, points1, points2)
 
     return R, t
 
@@ -131,13 +133,17 @@ def restore_keypoints(keypoint, matches, imageshapeo, imageshaper, method=1):
     scale_x = ow / rw
     scale_y = oh / rh
     keypoint_copy = copy.copy(keypoint)
-    for i, kp in enumerate(keypoint):
-        x_scaled = kp[0] * scale_x
-        y_scaled = kp[1] * scale_y
-        # x_restored = x_scaled + (ow - rw) / 2
-        # y_restored = y_scaled + (oh - rh) / 2
 
-        keypoint_copy[i] = (x_scaled, y_scaled)
+    keypoint_copy[:, :1] *= scale_x
+    keypoint_copy[:, 1:2] *= scale_y
+
+    # for i, kp in enumerate(keypoint):
+    #     x_scaled = kp[0] * scale_x
+    #     y_scaled = kp[1] * scale_y
+    #     # x_restored = x_scaled + (ow - rw) / 2
+    #     # y_restored = y_scaled + (oh - rh) / 2
+    #
+    #     keypoint_copy[i] = (x_scaled, y_scaled)
     return keypoint_copy
 
 
@@ -157,6 +163,14 @@ def reproject3d(keypoints_1, keypoints_2, img_1_copy, img_2_copy, matches, K, na
     rotation_vector_deg = np.rad2deg(rotation_vector)
     print('旋转角(角度制):')
     print(rotation_vector_deg)
+
+    txt_path = os.path.join(save_path,'output.txt')
+    with open(txt_path, 'w') as f:
+        np.savetxt(f, R, fmt='%.8f', delimiter=',')
+        f.write('\n')
+        np.savetxt(f, t, fmt='%.8f', delimiter=',')
+        f.write('\n')
+        np.savetxt(f, rotation_vector_deg, fmt='%.8f', delimiter=',')
 
     text = str(rotation_vector_deg.reshape(-1))
     # print(text)
@@ -232,7 +246,7 @@ def get_match(image1, image2, cameraMatrix, save_path, keypoints1=None,
                                                                  matches, cameraMatrix, name=name, save_path=save_path)
     if refine:
         assert len(pt2_uvs) == len(pt1_uvs) and len(pt1_uv_matchs) == len(pt2_uv_matchs)
-        dist_thresh = 3
+        dist_thresh = 10
         kp1_match = []
         kp2_match = []
         for pt1_uv, pt2_uv, pt1_uv_match, pt2_uv_match in zip(pt1_uvs, pt2_uvs, pt1_uv_matchs, pt2_uv_matchs):
@@ -251,6 +265,74 @@ def get_match(image1, image2, cameraMatrix, save_path, keypoints1=None,
                     matches, cameraMatrix, name=name + 'refine', save_path=save_path)
     return keypoints1, keypoints2, matches
 
+
+from scipy.spatial import KDTree
+
+
+def icp(source_points, target_points, max_iterations=50, tolerance=1e-5):
+    """
+    ICP算法实现点云配准
+    :param source_points: 源点云，Nx3的numpy数组
+    :param target_points: 目标点云，Nx3的numpy数组
+    :param max_iterations: 最大迭代次数
+    :param tolerance: 收敛判据
+    :return: 变换矩阵（4x4的numpy数组）
+    """
+    assert len(source_points) == len(target_points)
+    num_points = len(source_points)
+
+    # 初始化变换矩阵为单位矩阵
+    transformation = np.eye(4)
+
+    for iteration in range(max_iterations):
+        # 对源点云进行变换
+        transformed_points = np.dot(transformation[:3, :3], source_points.T).T + transformation[:3, 3]
+
+        # 使用KD树构建对应关系
+        tree = KDTree(target_points)
+        _, indices = tree.query(transformed_points)
+
+        # 计算最优变换矩阵
+        rotation, translation = best_fit_transform(source_points, target_points[indices])
+        transformation = np.eye(4)
+        transformation[:3, :3] = rotation
+        transformation[:3, 3] = translation
+
+        # 计算误差
+        mean_error = np.mean(np.linalg.norm(target_points[indices] - transformed_points, axis=1))
+
+        if mean_error < tolerance:
+            break
+
+    return transformation
+
+
+def best_fit_transform(source_points, target_points):
+    """
+    计算最优的旋转矩阵和平移向量
+    :param source_points: 源点云，Nx3的numpy数组
+    :param target_points: 目标点云，Nx3的numpy数组
+    :return: 旋转矩阵和平移向量
+    """
+    assert len(source_points) == len(target_points)
+
+    # 计算质心
+    source_center = np.mean(source_points, axis=0)
+    target_center = np.mean(target_points, axis=0)
+
+    # 去中心化
+    source_points_centered = source_points - source_center
+    target_points_centered = target_points - target_center
+
+    # 计算旋转矩阵
+    matrix = np.dot(source_points_centered.T, target_points_centered)
+    u, _, vt = np.linalg.svd(matrix)
+    rotation = np.dot(vt.T, u.T)
+
+    # 计算平移向量
+    translation = target_center - np.dot(rotation, source_center)
+
+    return rotation, translation
 # # 读取图像
 # # im_path1 = r'G:\point_match\calibrate\test\WIN_20240220_16_51_21_Pro.jpg'
 # # im_path2 = r'G:\point_match\calibrate\test\WIN_20240220_16_51_29_Pro.jpg'
